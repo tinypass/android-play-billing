@@ -25,6 +25,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -40,6 +41,8 @@ import com.example.android.trivialdrivesample.util.Purchase;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import io.piano.android.oauth.ui.activity.OAuthActivity;
 
 /**
  * Example game using in-app billing version 3.
@@ -125,6 +128,8 @@ public class MainActivity extends Activity implements IabBroadcastListener,
     // (arbitrary) request code for the purchase flow
     static final int RC_REQUEST = 10001;
 
+    static final int RC_OAUTH = 42;
+
     // Graphics for the gas gauge
     static int[] TANK_RES_IDS = { R.drawable.gas0, R.drawable.gas1, R.drawable.gas2,
             R.drawable.gas3, R.drawable.gas4 };
@@ -165,12 +170,14 @@ public class MainActivity extends Activity implements IabBroadcastListener,
 
         // Some sanity checks to see if the developer (that's you!) really followed the
         // instructions to run this sample (don't put these checks on your app!)
+        /*
         if (base64EncodedPublicKey.contains("CONSTRUCT_YOUR")) {
             throw new RuntimeException("Please put your app's public key in MainActivity.java. See README.");
         }
         if (getPackageName().startsWith("com.example")) {
             throw new RuntimeException("Please change the sample's package name! See README.");
         }
+        */
 
         // Create the helper, passing it our context and the public key to verify signatures with
         Log.d(TAG, "Creating IAB helper.");
@@ -445,6 +452,18 @@ public class MainActivity extends Activity implements IabBroadcastListener,
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         Log.d(TAG, "onActivityResult(" + requestCode + "," + resultCode + "," + data);
+
+        if (RC_OAUTH == requestCode) {
+            if (RESULT_OK == resultCode) {
+                String accessToken = data.getStringExtra(OAuthActivity.EXTRA_ACCESS_TOKEN);
+                SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit();
+                editor.putString("accessToken", accessToken).apply();
+                ((PianoInAppBillingSampleApplication) getApplication()).getPianoClient().setAccessToken(accessToken);
+            }
+
+            return;
+        }
+
         if (mHelper == null) return;
 
         // Pass on the activity result to the helper for handling
@@ -498,7 +517,11 @@ public class MainActivity extends Activity implements IabBroadcastListener,
             if (mHelper == null) return;
 
             if (result.isFailure()) {
-                complain("Error purchasing: " + result);
+                if (IabHelper.IABHELPER__PIANO__NO_ACCESS_TOKEN == result.getResponse()) {
+                    OAuthActivity.start(MainActivity.this, RC_OAUTH, BuildConfig.PIANO_AID, BuildConfig.DEBUG);
+                } else {
+                    complain("Error purchasing: " + result);
+                }
                 setWaitScreen(false);
                 return;
             }

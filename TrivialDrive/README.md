@@ -37,6 +37,11 @@ This sample can't be run as-is. You have to create your own
 application instance in the Developer Console and modify this
 sample to point to it. Here is what you must do:
 
+BEFORE IMPORTING
+
+0. Create `keystore.properties` with signing config and `piano.properties` with your `applicationId`
+   and mapping `Piano term ids` <-> `Google Play product ids`.
+
 ON THE GOOGLE PLAY DEVELOPER CONSOLE
 
 1. Create an application on the Developer Console, available at

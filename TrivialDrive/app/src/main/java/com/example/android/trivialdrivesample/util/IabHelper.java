@@ -27,15 +27,30 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.vending.billing.IInAppBillingService;
+import com.example.android.trivialdrivesample.BuildConfig;
+import com.example.android.trivialdrivesample.PianoInAppBillingSampleApplication;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+
+import io.piano.android.api.PianoClient;
+import io.piano.android.api.anon.model.Access;
+import io.piano.android.api.anon.model.TermConversion;
+import io.piano.android.api.common.ApiException;
+import rx.Single;
+import rx.SingleSubscriber;
+import rx.android.schedulers.AndroidSchedulers;
+import rx.schedulers.Schedulers;
+import rx.subscriptions.CompositeSubscription;
 
 
 /**
@@ -72,6 +87,9 @@ import java.util.List;
  *
  */
 public class IabHelper {
+
+    private static final int PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED = 10016;
+
     // Is debug logging enabled?
     boolean mDebugLog = false;
     String mDebugTag = "IabHelper";
@@ -104,6 +122,9 @@ public class IabHelper {
 
     // Context we were passed during initialization
     Context mContext;
+
+    private PianoClient pianoClient;
+    private CompositeSubscription rxSubscriptions;
 
     // Connection to the service
     IInAppBillingService mService;
@@ -142,6 +163,7 @@ public class IabHelper {
     public static final int IABHELPER_SUBSCRIPTIONS_NOT_AVAILABLE = -1009;
     public static final int IABHELPER_INVALID_CONSUMPTION = -1010;
     public static final int IABHELPER_SUBSCRIPTION_UPDATE_NOT_AVAILABLE = -1011;
+    public static final int IABHELPER__PIANO__NO_ACCESS_TOKEN = -1012;
 
     // Keys for the responses from InAppBillingService
     public static final String RESPONSE_CODE = "RESPONSE_CODE";
@@ -175,6 +197,8 @@ public class IabHelper {
      */
     public IabHelper(Context ctx, String base64PublicKey) {
         mContext = ctx.getApplicationContext();
+        pianoClient = ((PianoInAppBillingSampleApplication) mContext).getPianoClient();
+        rxSubscriptions = new CompositeSubscription();
         mSignatureBase64 = base64PublicKey;
         logDebug("IAB helper created.");
     }
@@ -330,6 +354,7 @@ public class IabHelper {
             if (mContext != null) mContext.unbindService(mServiceConn);
         }
         mDisposed = true;
+        rxSubscriptions.clear();
         mContext = null;
         mServiceConn = null;
         mService = null;
@@ -437,6 +462,14 @@ public class IabHelper {
         flagStartAsync("launchPurchaseFlow");
         IabResult result;
 
+        String accessToken = PreferenceManager.getDefaultSharedPreferences(mContext).getString("accessToken", null);
+        if (TextUtils.isEmpty(accessToken)) {
+            IabResult r = new IabResult(IABHELPER__PIANO__NO_ACCESS_TOKEN, "No access token.");
+            flagEndAsync();
+            if (listener != null) listener.onIabPurchaseFinished(r, null);
+            return;
+        }
+
         if (itemType.equals(ITEM_TYPE_SUBS) && !mSubscriptionsSupported) {
             IabResult r = new IabResult(IABHELPER_SUBSCRIPTIONS_NOT_AVAILABLE,
                     "Subscriptions are not available.");
@@ -524,6 +557,14 @@ public class IabHelper {
         // end of async purchase operation that started on launchPurchaseFlow
         flagEndAsync();
 
+        final String accessToken = PreferenceManager.getDefaultSharedPreferences(mContext).getString("accessToken", null);
+        if (TextUtils.isEmpty(accessToken)) {
+            logError("No access token.");
+            result = new IabResult(IABHELPER__PIANO__NO_ACCESS_TOKEN, "No access token");
+            if (mPurchaseListener != null) { mPurchaseListener.onIabPurchaseFinished(result, null); }
+            return true;
+        }
+
         if (data == null) {
             logError("Null data in IAB activity result.");
             result = new IabResult(IABHELPER_BAD_RESPONSE, "Null data in IAB result");
@@ -551,18 +592,15 @@ public class IabHelper {
             }
 
             Purchase purchase = null;
+            String fields;
             try {
                 purchase = new Purchase(mPurchasingItemType, purchaseData, dataSignature);
                 String sku = purchase.getSku();
 
-                // Verify signature
-                if (!Security.verifyPurchase(mSignatureBase64, purchaseData, dataSignature)) {
-                    logError("Purchase signature verification FAILED for sku " + sku);
-                    result = new IabResult(IABHELPER_VERIFICATION_FAILED, "Signature verification failed for sku " + sku);
-                    if (mPurchaseListener != null) mPurchaseListener.onIabPurchaseFinished(result, purchase);
-                    return true;
-                }
-                logDebug("Purchase signature successfully verified.");
+                JSONObject jsonFields = new JSONObject();
+                jsonFields.put(RESPONSE_INAPP_PURCHASE_DATA, purchaseData);
+                jsonFields.put(RESPONSE_INAPP_SIGNATURE, dataSignature);
+                fields = jsonFields.toString();
             }
             catch (JSONException e) {
                 logError("Failed to parse purchase data.");
@@ -572,9 +610,42 @@ public class IabHelper {
                 return true;
             }
 
-            if (mPurchaseListener != null) {
-                mPurchaseListener.onIabPurchaseFinished(new IabResult(BILLING_RESPONSE_RESULT_OK, "Success"), purchase);
-            }
+            final Purchase purchaseFinal = purchase;
+            final String skuFinal = purchase.getSku();
+            final String fieldsFinal = fields;
+            Callable<TermConversion> callable = new Callable<TermConversion>() {
+                @Override
+                public TermConversion call() throws Exception {
+                    return pianoClient.getConversionExternalApi().externalVerifiedCreate(
+                            pianoClient.getAid(),
+                            getTermIdFromSku(skuFinal),
+                            fieldsFinal,
+                            accessToken,
+                            null, null
+                    );
+                }
+            };
+            rxSubscriptions.add(
+                    Single.fromCallable(callable)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(new SingleSubscriber<TermConversion>() {
+                                @Override
+                                public void onSuccess(TermConversion value) {
+                                    logDebug("Purchase signature successfully verified.");
+                                    if (mPurchaseListener != null) {
+                                        mPurchaseListener.onIabPurchaseFinished(new IabResult(BILLING_RESPONSE_RESULT_OK, "Success"), purchaseFinal);
+                                    }
+                                }
+
+                                @Override
+                                public void onError(Throwable error) {
+                                    logError("Purchase signature verification FAILED for sku " + skuFinal);
+                                    IabResult result = new IabResult(IABHELPER_VERIFICATION_FAILED, "Signature verification failed for sku " + skuFinal);
+                                    if (mPurchaseListener != null) mPurchaseListener.onIabPurchaseFinished(result, purchaseFinal);
+                                }
+                            })
+            );
         }
         else if (resultCode == Activity.RESULT_OK) {
             // result code was OK, but in-app billing response was not OK.
@@ -840,7 +911,9 @@ public class IabHelper {
                                    "-1007:Missing token/" +
                                    "-1008:Unknown error/" +
                                    "-1009:Subscriptions not available/" +
-                                   "-1010:Invalid consumption attempt").split("/");
+                                   "-1010:Invalid consumption attempt/" +
+                                   "-1011:Subscription updates are not available/" +
+                                   "-1012:No access token").split("/");
 
         if (code <= IABHELPER_ERROR_BASE) {
             int index = IABHELPER_ERROR_BASE - code;
@@ -934,6 +1007,11 @@ public class IabHelper {
     }
 
     int queryPurchases(Inventory inv, String itemType) throws JSONException, RemoteException {
+        String accessToken = PreferenceManager.getDefaultSharedPreferences(mContext).getString("accessToken", null);
+        if (TextUtils.isEmpty(accessToken)) {
+            return IABHELPER__PIANO__NO_ACCESS_TOKEN;
+        }
+
         // Query purchases
         logDebug("Querying owned items, item type: " + itemType);
         logDebug("Package name: " + mContext.getPackageName());
@@ -969,23 +1047,47 @@ public class IabHelper {
                 String purchaseData = purchaseDataList.get(i);
                 String signature = signatureList.get(i);
                 String sku = ownedSkus.get(i);
-                if (Security.verifyPurchase(mSignatureBase64, purchaseData, signature)) {
-                    logDebug("Sku is owned: " + sku);
-                    Purchase purchase = new Purchase(itemType, purchaseData, signature);
 
-                    if (TextUtils.isEmpty(purchase.getToken())) {
-                        logWarn("BUG: empty/null token!");
-                        logDebug("Purchase data: " + purchaseData);
+                JSONObject jsonFields = new JSONObject();
+                jsonFields.put(RESPONSE_INAPP_PURCHASE_DATA, purchaseData);
+                jsonFields.put(RESPONSE_INAPP_SIGNATURE, signature);
+                String fields = jsonFields.toString();
+                try {
+                    TermConversion termConversion = pianoClient.getConversionExternalApi().externalVerifiedCreate(
+                            pianoClient.getAid(),
+                            getTermIdFromSku(sku),
+                            fields,
+                            accessToken,
+                            null, null
+                    );
+
+                    Access userAccess = termConversion.getUserAccess();
+                    if (userAccess != null) {
+                        Boolean granted = userAccess.getGranted();
+                        if ((granted != null) && granted) {
+                            logDebug("Sku is owned: " + sku);
+                            Purchase purchase = new Purchase(itemType, purchaseData, signature);
+
+                            if (TextUtils.isEmpty(purchase.getToken())) {
+                                logWarn("BUG: empty/null token!");
+                                logDebug("Purchase data: " + purchaseData);
+                            }
+
+                            // Record ownership and token
+                            inv.addPurchase(purchase);
+                        }
                     }
-
-                    // Record ownership and token
-                    inv.addPurchase(purchase);
-                }
-                else {
-                    logWarn("Purchase signature verification **FAILED**. Not adding item.");
-                    logDebug("   Purchase data: " + purchaseData);
-                    logDebug("   Signature: " + signature);
-                    verificationFailed = true;
+                } catch (ApiException e) {
+                    if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED == e.getCode()) {
+                        logWarn("Subscription was **CANCELLED**. Not adding item.");
+                        logDebug("   Purchase data: " + purchaseData);
+                        logDebug("   Signature: " + signature);
+                    } else {
+                        logWarn("Purchase signature verification **FAILED**. Not adding item.");
+                        logDebug("   Purchase data: " + purchaseData);
+                        logDebug("   Signature: " + signature);
+                        verificationFailed = true;
+                    }
                 }
             }
 
@@ -1112,5 +1214,21 @@ public class IabHelper {
 
     void logWarn(String msg) {
         Log.w(mDebugTag, "In-app billing warning: " + msg);
+    }
+
+    /**
+     * Map your product ids to terms ids
+     */
+    private String getTermIdFromSku(String sku) {
+        switch (sku) {
+            case "gas":
+                return BuildConfig.PIANO_TERM_CONSUMABLE;
+            case "premium":
+                return BuildConfig.PIANO_TERM_NON_CONSUMABLE;
+            case "infinite_gas_monthly":
+                return BuildConfig.PIANO_TERM_SUBSCRIPTION_MONTHLY;
+            default:
+                return "UNKNOWN";
+        }
     }
 }

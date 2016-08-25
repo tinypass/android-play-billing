@@ -1,31 +1,44 @@
 apply plugin: 'com.android.application'
 
+def keystoreProperties = new Properties()
+keystoreProperties.load(new FileInputStream(rootProject.file("keystore.properties")))
+
+def piano = new Properties()
+piano.load(new FileInputStream(rootProject.file("piano.properties")))
+
 android {
     signingConfigs {
-        /* TODO(developer): Configure to sign app with a release key for testing.
         release {
-            storeFile file('path/to/release/signing/key')
-            keyAlias 'release_key_alias'
-            keyPassword "${password}"
-            storePassword "${password}"
-        }*/
+            storeFile file(keystoreProperties['storeFile'])
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storePassword keystoreProperties['storePassword']
+        }
     }
     compileSdkVersion 23
     buildToolsVersion "23.0.1"
 
     defaultConfig {
-        applicationId "com.example.android.trivialdrivesample"
+        applicationId "io.piano.sample.inappbilling"
         minSdkVersion 14
         targetSdkVersion 23
         versionCode 7
         versionName "1.5"
+
+        buildConfigField "String", "PIANO_AID", "\"$piano.applicationId\""
+        buildConfigField "String", "PIANO_TERM_CONSUMABLE", "\"$piano.termsConsumable\""
+        buildConfigField "String", "PIANO_TERM_NON_CONSUMABLE", "\"$piano.termsNonConsumable\""
+        buildConfigField "String", "PIANO_TERM_SUBSCRIPTION_MONTHLY", "\"$piano.termsSubscriptionMonthly\""
     }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.release
+        }
+
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // TODO(developer): uncomment below once config above is complete and uncommented.
-            // signingConfig signingConfigs.release
+            signingConfig signingConfigs.release
         }
     }
 }
@@ -34,4 +47,12 @@ dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
     testCompile 'junit:junit:4.12'
     compile 'com.android.support:appcompat-v7:23.0.1'
+
+    compile 'io.piano.android:api:1.0.0-alpha6'
+    compile 'io.piano.android:oauth:1.0.0-alpha6'
+
+    compile 'io.reactivex:rxandroid:1.2.1'
+    compile 'io.reactivex:rxjava:1.1.9'
+
+    compile 'com.squareup.okhttp3:okhttp:3.4.1'
 }
