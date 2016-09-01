@@ -215,10 +215,12 @@ public class MainActivity extends Activity implements IabBroadcastListener,
 
                 // IAB is fully set up. Now, let's get an inventory of stuff we own.
                 Log.d(TAG, "Setup successful. Querying inventory.");
+                setWaitScreen(true);
                 try {
                     mHelper.queryInventoryAsync(mGotInventoryListener);
                 } catch (IabAsyncInProgressException e) {
                     complain("Error querying inventory. Another async operation in progress.");
+                    setWaitScreen(false);
                 }
             }
         });
@@ -235,6 +237,7 @@ public class MainActivity extends Activity implements IabBroadcastListener,
             // Is it a failure?
             if (result.isFailure()) {
                 complain("Failed to query inventory: " + result);
+                setWaitScreen(false);
                 return;
             }
 
@@ -281,6 +284,7 @@ public class MainActivity extends Activity implements IabBroadcastListener,
                     mHelper.consumeAsync(inventory.getPurchase(SKU_GAS), mConsumeFinishedListener);
                 } catch (IabAsyncInProgressException e) {
                     complain("Error consuming gas. Another async operation in progress.");
+                    setWaitScreen(false);
                 }
                 return;
             }
