@@ -164,6 +164,7 @@ public class IabHelper {
     public static final int IABHELPER_INVALID_CONSUMPTION = -1010;
     public static final int IABHELPER_SUBSCRIPTION_UPDATE_NOT_AVAILABLE = -1011;
     public static final int IABHELPER__PIANO__NO_ACCESS_TOKEN = -1012;
+    public static final int IABHELPER__PIANO__CONNECTION_ERROR = -1013;
 
     // Keys for the responses from InAppBillingService
     public static final String RESPONSE_CODE = "RESPONSE_CODE";
@@ -640,8 +641,18 @@ public class IabHelper {
 
                                 @Override
                                 public void onError(Throwable error) {
-                                    logError("Purchase signature verification FAILED for sku " + skuFinal);
-                                    IabResult result = new IabResult(IABHELPER_VERIFICATION_FAILED, "Signature verification failed for sku " + skuFinal);
+                                    IabResult result;
+                                    if (error instanceof ApiException) {
+                                        ApiException apiException = (ApiException) error;
+                                        if (500 == apiException.getCode()) {
+                                            result = new IabResult(IABHELPER__PIANO__CONNECTION_ERROR, error.getMessage());
+                                        } else {
+                                            logError("Purchase signature verification FAILED for sku " + skuFinal + ",\n" + error.getMessage());
+                                            result = new IabResult(IABHELPER_VERIFICATION_FAILED, "Signature verification failed for sku " + skuFinal);
+                                        }
+                                    } else {
+                                        result = new IabResult(IABHELPER_UNKNOWN_ERROR, error.getMessage());
+                                    }
                                     if (mPurchaseListener != null) mPurchaseListener.onIabPurchaseFinished(result, purchaseFinal);
                                 }
                             })
@@ -913,7 +924,8 @@ public class IabHelper {
                                    "-1009:Subscriptions not available/" +
                                    "-1010:Invalid consumption attempt/" +
                                    "-1011:Subscription updates are not available/" +
-                                   "-1012:No access token").split("/");
+                                   "-1012:No access token/" +
+                                   "-1013:Connection error").split("/");
 
         if (code <= IABHELPER_ERROR_BASE) {
             int index = IABHELPER_ERROR_BASE - code;
@@ -1078,7 +1090,9 @@ public class IabHelper {
                         }
                     }
                 } catch (ApiException e) {
-                    if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED == e.getCode()) {
+                    if (500 == e.getCode()) {
+                        return IABHELPER__PIANO__CONNECTION_ERROR;
+                    } else if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED == e.getCode()) {
                         logWarn("Subscription was **CANCELLED**. Not adding item.");
                         logDebug("   Purchase data: " + purchaseData);
                         logDebug("   Signature: " + signature);
