@@ -29,6 +29,7 @@ android {
         buildConfigField "String", "PIANO_TERM_CONSUMABLE", "\"$piano.termsConsumable\""
         buildConfigField "String", "PIANO_TERM_NON_CONSUMABLE", "\"$piano.termsNonConsumable\""
         buildConfigField "String", "PIANO_TERM_SUBSCRIPTION_MONTHLY", "\"$piano.termsSubscriptionMonthly\""
+        buildConfigField "String", "PIANO_RESOURCE_SUBSCRIPTION_MONTHLY", "\"$piano.resourcesSubscriptionMonthly\""
     }
     buildTypes {
         debug {

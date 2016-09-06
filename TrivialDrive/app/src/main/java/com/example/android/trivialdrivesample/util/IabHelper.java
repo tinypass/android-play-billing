@@ -644,7 +644,7 @@ public class IabHelper {
                                     IabResult result;
                                     if (error instanceof ApiException) {
                                         ApiException apiException = (ApiException) error;
-                                        if (500 == apiException.getCode()) {
+                                        if ((403 == apiException.getCode()) || (500 == apiException.getCode())) {
                                             result = new IabResult(IABHELPER__PIANO__CONNECTION_ERROR, error.getMessage());
                                         } else {
                                             logError("Purchase signature verification FAILED for sku " + skuFinal + ",\n" + error.getMessage());
@@ -1074,28 +1074,25 @@ public class IabHelper {
                     );
 
                     Access userAccess = termConversion.getUserAccess();
-                    if (userAccess != null) {
-                        Boolean granted = userAccess.getGranted();
-                        if ((granted != null) && granted) {
-                            logDebug("Sku is owned: " + sku);
-                            Purchase purchase = new Purchase(itemType, purchaseData, signature);
-
-                            if (TextUtils.isEmpty(purchase.getToken())) {
-                                logWarn("BUG: empty/null token!");
-                                logDebug("Purchase data: " + purchaseData);
-                            }
-
-                            // Record ownership and token
-                            inv.addPurchase(purchase);
-                        }
-                    }
+                    addPurchaseIfGranted(itemType, sku, purchaseData, signature, inv, userAccess);
                 } catch (ApiException e) {
-                    if (500 == e.getCode()) {
+                    if ((403 == e.getCode()) || (500 == e.getCode())) {
                         return IABHELPER__PIANO__CONNECTION_ERROR;
                     } else if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED == e.getCode()) {
-                        logWarn("Subscription was **CANCELLED**. Not adding item.");
+                        logWarn("Subscription was **CANCELLED**. Checking for access...");
                         logDebug("   Purchase data: " + purchaseData);
                         logDebug("   Signature: " + signature);
+
+                        try {
+                            Access access = pianoClient.getAccessApi().check(getResourceIdFromSku(sku), pianoClient.getAid(), null, null, accessToken, null, null);
+                            addPurchaseIfGranted(itemType, sku, purchaseData, signature, inv, access);
+                        } catch (ApiException ex) {
+                            if ((403 == e.getCode()) || (500 == e.getCode())) {
+                                return IABHELPER__PIANO__CONNECTION_ERROR;
+                            } else {
+                                logWarn(ex.getMessage());
+                            }
+                        }
                     } else {
                         logWarn("Purchase signature verification **FAILED**. Not adding item.");
                         logDebug("   Purchase data: " + purchaseData);
@@ -1230,6 +1227,24 @@ public class IabHelper {
         Log.w(mDebugTag, "In-app billing warning: " + msg);
     }
 
+    private void addPurchaseIfGranted(String itemType, String sku, String purchaseData, String signature, Inventory inventory, Access access) throws JSONException {
+        if (access != null) {
+            Boolean granted = access.getGranted();
+            if ((granted != null) && granted) {
+                logDebug("Sku is owned: " + sku);
+                Purchase purchase = new Purchase(itemType, purchaseData, signature);
+
+                if (TextUtils.isEmpty(purchase.getToken())) {
+                    logWarn("BUG: empty/null token!");
+                    logDebug("Purchase data: " + purchaseData);
+                }
+
+                // Record ownership and token
+                inventory.addPurchase(purchase);
+            }
+        }
+    }
+
     /**
      * Map your product ids to terms ids
      */
@@ -1241,6 +1256,18 @@ public class IabHelper {
                 return BuildConfig.PIANO_TERM_NON_CONSUMABLE;
             case "infinite_gas_monthly":
                 return BuildConfig.PIANO_TERM_SUBSCRIPTION_MONTHLY;
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    /**
+     * Map your products ids to resource ids
+     */
+    private String getResourceIdFromSku(String sku) {
+        switch (sku) {
+            case "infinite_gas_monthly":
+                return BuildConfig.PIANO_RESOURCE_SUBSCRIPTION_MONTHLY;
             default:
                 return "UNKNOWN";
         }

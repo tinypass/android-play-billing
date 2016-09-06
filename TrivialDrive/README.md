@@ -39,8 +39,8 @@ sample to point to it. Here is what you must do:
 
 BEFORE IMPORTING
 
-0. Create `keystore.properties` with signing config and `piano.properties` with your `applicationId`
-   and mapping `Piano term ids` <-> `Google Play product ids`.
+0. Create `keystore.properties` with signing config and `piano.properties` with your `applicationId`,
+   mapping `Piano term ids` <-> `Google Play product ids` and `Piano resource ids` <-> `Google Play product ids`
 
 ON THE GOOGLE PLAY DEVELOPER CONSOLE
 
