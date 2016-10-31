@@ -89,6 +89,8 @@ import rx.subscriptions.CompositeSubscription;
 public class IabHelper {
 
     private static final int PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_CANCELLED = 10016;
+    private static final int PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_EXPIRED = 10017;
+    private static final int PIANO_API_ERROR_CODES_GOOGLE_PLAY_PRODUCT_CANCELLED = 10018;
 
     // Is debug logging enabled?
     boolean mDebugLog = false;
@@ -1093,6 +1095,14 @@ public class IabHelper {
                                 logWarn(ex.getMessage());
                             }
                         }
+                    } else if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_SUBSCRIPTION_EXPIRED == e.getCode()) {
+                        logWarn("Subscription was **EXPIRED**. Not adding item.");
+                        logDebug("   Purchase data: " + purchaseData);
+                        logDebug("   Signature: " + signature);
+                    } else if (PIANO_API_ERROR_CODES_GOOGLE_PLAY_PRODUCT_CANCELLED == e.getCode()) {
+                        logWarn("Product was **CANCELLED**. Not adding item.");
+                        logDebug("   Purchase data: " + purchaseData);
+                        logDebug("   Signature: " + signature);
                     } else {
                         logWarn("Purchase signature verification **FAILED**. Not adding item.");
                         logDebug("   Purchase data: " + purchaseData);
