@@ -522,7 +522,10 @@ public class MainActivity extends Activity implements IabBroadcastListener,
 
             if (result.isFailure()) {
                 if (IabHelper.IABHELPER__PIANO__NO_ACCESS_TOKEN == result.getResponse()) {
-                    OAuthActivity.start(MainActivity.this, RC_OAUTH, BuildConfig.PIANO_AID, BuildConfig.DEBUG);
+                    new OAuthActivity.Builder(MainActivity.this, BuildConfig.PIANO_AID)
+                            .sandbox(BuildConfig.DEBUG)
+                            .requestCode(RC_OAUTH)
+                            .start();
                 } else {
                     complain("Error purchasing: " + result);
                 }
